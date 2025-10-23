@@ -1,0 +1,29 @@
+{
+    "student_id": 1,
+    "student_name": "Sher",
+    "study_plan": [
+        {
+            "date": "2025-10-23",
+            "subject": "Maths",
+            "topic": "Algebra",
+            "hours": 3
+        },
+        {
+            "date": "2025-10-23",
+            "subject": "Physics",
+            "topic": "Mechanics",
+            "hours": 3
+        },
+        {
+            "date": "2025-10-23",
+            "subject": "Computer Science",
+            "topic": "Data Structures",
+            "hours": 3
+        }
+    ],
+    "progress_summary": {
+        "total_topics": 3,
+        "completed_topics_count": 1,
+        "readiness_percentage": 33.33
+    }
+}
