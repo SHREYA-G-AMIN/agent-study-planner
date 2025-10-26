@@ -32,7 +32,9 @@ def structure_study_plan(input_data):
 
     return study_plan
 
+
 # Test the function
 study_plan = structure_study_plan(input_data)
 for item in study_plan:
     print(item)
+
