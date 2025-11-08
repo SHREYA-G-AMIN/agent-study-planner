@@ -1,10 +1,8 @@
 from langchain_openai import ChatOpenAI
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.tools import tool
+from langchain_core.prompts import ChatPromptTemplate
 from config.settings import OPENAI_API_KEY, MODEL_NAME, TEMPERATURE_PLANNING
-from tools.study_tools import calculate_study_hours, rebalance_schedule
 from json_manager import StudentDataManager
+import json
 
 
 class PlannerAgent:
@@ -21,8 +19,7 @@ class PlannerAgent:
             temperature=TEMPERATURE_PLANNING
         )
         
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an intelligent study planner AI assistant. Your responsibilities:
+        self.system_prompt = """You are an intelligent study planner AI assistant. Your responsibilities:
 
 1. Create realistic, balanced study schedules
 2. Break down complex syllabi into manageable daily tasks
@@ -35,65 +32,70 @@ Guidelines:
 - Prioritize difficult topics earlier in the schedule
 - Leave buffer time for unexpected delays
 - Be encouraging and supportive in your responses
-
-Always use the provided tools to calculate and adjust schedules."""),
-            ("human", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad")
-        ])
-        
-        self.tools = [calculate_study_hours, rebalance_schedule]
-        self.agent = create_react_agent(
-            llm=self.llm,
-            tools=self.tools,
-            prompt=self.prompt
-        )
-        self.agent_executor = AgentExecutor(
-            agent=self.agent,
-            tools=self.tools,
-            verbose=True,
-            handle_parsing_errors=True
-        )
+- Respond in clear, structured format"""
         
         # JSON integration (optional)
         self.data_manager = data_manager
     
     def create_schedule(self, syllabus: dict, exam_date: str, available_hours: int):
         """Creates a new study schedule"""
-        import json
         
-        input_text = f"""Create a comprehensive study schedule with these details:
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", self.system_prompt),
+            ("human", """Create a comprehensive study schedule with these details:
 
-Syllabus: {json.dumps(syllabus, indent=2)}
+Syllabus: {syllabus}
 Exam Date: {exam_date}
 Available Hours Per Day: {available_hours}
 
-Use the calculate_study_hours tool to create a detailed daily schedule.
-Make sure to include revision days before the exam."""
+Provide a day-by-day study plan with:
+- Date and topics to cover each day
+- Estimated hours needed
+- Include 2 revision days before exam
+- Ensure workload is balanced
 
+Respond with actionable recommendations.""")
+        ])
+        
         try:
-            result = self.agent_executor.invoke({"input": input_text})
-            return result
+            chain = prompt | self.llm
+            result = chain.invoke({
+                "syllabus": json.dumps(syllabus, indent=2),
+                "exam_date": exam_date,
+                "available_hours": available_hours
+            })
+            return {"output": result.content, "schedule": result.content}
         except Exception as e:
             return {"error": str(e)}
     
     def adjust_schedule(self, current_schedule: dict, missed_tasks: list, available_hours: int):
         """Adjusts schedule for missed tasks"""
-        import json
         
-        input_text = f"""A student has fallen behind schedule. Please rebalance their study plan:
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", self.system_prompt),
+            ("human", """A student has fallen behind schedule. Please rebalance their study plan:
 
-Current Schedule: {json.dumps(current_schedule, indent=2)}
-Missed Tasks: {json.dumps(missed_tasks, indent=2)}
+Current Schedule: {current_schedule}
+Missed/Pending Tasks: {missed_tasks}
 Available Hours Per Day: {available_hours}
 
-Use the rebalance_schedule tool to create an adjusted schedule that:
+Create an adjusted schedule that:
 1. Prioritizes missed tasks
-2. Doesn't overload any single day
-3. Maintains realistic goals"""
+2. Doesn't overload any single day  
+3. Maintains realistic goals
+4. Provides encouragement
+
+Give practical recommendations.""")
+        ])
 
         try:
-            result = self.agent_executor.invoke({"input": input_text})
-            return result
+            chain = prompt | self.llm
+            result = chain.invoke({
+                "current_schedule": json.dumps(current_schedule, indent=2),
+                "missed_tasks": json.dumps(missed_tasks, indent=2),
+                "available_hours": available_hours
+            })
+            return {"output": result.content, "adjusted_schedule": result.content}
         except Exception as e:
             return {"error": str(e)}
     

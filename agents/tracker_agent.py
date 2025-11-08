@@ -1,9 +1,8 @@
 from langchain_openai import ChatOpenAI
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate
 from config.settings import OPENAI_API_KEY, MODEL_NAME, TEMPERATURE_TRACKING
-from tools.study_tools import check_completion_status, get_progress_analytics
 from json_manager import StudentDataManager
+import json
 
 
 class TrackerAgent:
@@ -20,8 +19,7 @@ class TrackerAgent:
             temperature=TEMPERATURE_TRACKING
         )
         
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a study progress tracking AI assistant. Your responsibilities:
+        self.system_prompt = """You are a study progress tracking AI assistant. Your responsibilities:
 
 1. Monitor daily task completion accurately
 2. Identify patterns in student behavior
@@ -34,61 +32,75 @@ Guidelines:
 - Identify both strengths and areas for improvement
 - Alert when intervention is needed
 - Track streaks and consistency
-
-Always use the provided tools to analyze progress data."""),
-            ("human", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad")
-        ])
-        
-        self.tools = [check_completion_status, get_progress_analytics]
-        self.agent = create_react_agent(
-            llm=self.llm,
-            tools=self.tools,
-            prompt=self.prompt
-        )
-        self.agent_executor = AgentExecutor(
-            agent=self.agent,
-            tools=self.tools,
-            verbose=True,
-            handle_parsing_errors=True
-        )
+- Provide clear, actionable insights"""
         
         # JSON integration (optional)
         self.data_manager = data_manager
     
     def track_progress(self, schedule: dict, completed_topics: list):
         """Tracks completion status"""
-        import json
         
-        completed_str = ",".join(completed_topics)
+        completed_str = ", ".join(completed_topics) if completed_topics else "None yet"
         
-        input_text = f"""Analyze the student's progress:
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", self.system_prompt),
+            ("human", """Analyze the student's progress:
 
-Schedule: {json.dumps(schedule, indent=2)}
-Completed Topics: {completed_str}
+Schedule: {schedule}
+Completed Topics: {completed}
 
-Use check_completion_status to analyze what's been completed and what's been missed.
-Provide a clear assessment of their current standing."""
+Provide:
+1. What's been completed
+2. What's been missed
+3. Current readiness assessment
+4. Specific recommendations
+
+Be encouraging but honest.""")
+        ])
 
         try:
-            result = self.agent_executor.invoke({"input": input_text})
-            return result
+            chain = prompt | self.llm
+            result = chain.invoke({
+                "schedule": json.dumps(schedule, indent=2),
+                "completed": completed_str
+            })
+            return {"output": result.content, "analysis": result.content}
         except Exception as e:
             return {"error": str(e)}
     
     def get_analytics(self, completed_count: int, missed_count: int, streak: int):
         """Gets performance analytics"""
-        input_text = f"""Generate performance analytics:
+        
+        total = completed_count + missed_count
+        completion_rate = (completed_count / total * 100) if total > 0 else 0
+        
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", self.system_prompt),
+            ("human", """Generate performance analytics:
 
-Completed Tasks: {completed_count}
-Missed Tasks: {missed_count}
+Completed Tasks: {completed}
+Missed Tasks: {missed}
 Current Streak: {streak} days
+Completion Rate: {rate}%
 
-Use get_progress_analytics to create a comprehensive performance report."""
+Provide:
+1. Performance assessment
+2. Strengths and weaknesses
+3. Actionable recommendations
+4. Motivational insights
+
+Be specific and helpful.""")
+        ])
 
         try:
-            result = self.agent_executor.invoke({"input": input_text})
-            return result
+            chain = prompt | self.llm
+            result = chain.invoke({
+                "completed": completed_count,
+                "missed": missed_count,
+                "streak": streak,
+                "rate": round(completion_rate, 1)
+            })
+            return {"output": result.content, "analytics": result.content}
         except Exception as e:
             return {"error": str(e)}
     
