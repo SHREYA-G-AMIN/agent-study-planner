@@ -1,11 +1,20 @@
 from langchain_openai import ChatOpenAI
-from langchain.agents import AgentExecutor, create_openai_functions_agent
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.agents import AgentExecutor, create_react_agent
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.tools import tool
 from config.settings import OPENAI_API_KEY, MODEL_NAME, TEMPERATURE_PLANNING
 from tools.study_tools import calculate_study_hours, rebalance_schedule
+from json_manager import StudentDataManager
+
 
 class PlannerAgent:
-    def __init__(self):
+    def __init__(self, data_manager=None):
+        """
+        Initialize the Planner Agent.
+        
+        Args:
+            data_manager: Optional StudentDataManager instance for JSON integration
+        """
         self.llm = ChatOpenAI(
             api_key=OPENAI_API_KEY,
             model=MODEL_NAME,
@@ -33,7 +42,7 @@ Always use the provided tools to calculate and adjust schedules."""),
         ])
         
         self.tools = [calculate_study_hours, rebalance_schedule]
-        self.agent = create_openai_functions_agent(
+        self.agent = create_react_agent(
             llm=self.llm,
             tools=self.tools,
             prompt=self.prompt
@@ -44,6 +53,9 @@ Always use the provided tools to calculate and adjust schedules."""),
             verbose=True,
             handle_parsing_errors=True
         )
+        
+        # JSON integration (optional)
+        self.data_manager = data_manager
     
     def create_schedule(self, syllabus: dict, exam_date: str, available_hours: int):
         """Creates a new study schedule"""
@@ -84,4 +96,92 @@ Use the rebalance_schedule tool to create an adjusted schedule that:
             return result
         except Exception as e:
             return {"error": str(e)}
+    
+    # ========== JSON-Integrated Methods ==========
+    
+    def create_schedule_from_json(self, exam_date: str = "2025-11-20", available_hours: int = 3):
+        """
+        Create schedule using data from JSON file.
         
+        Args:
+            exam_date: Target exam date (YYYY-MM-DD)
+            available_hours: Hours available per day for study
+            
+        Returns:
+            Generated schedule dict
+        """
+        if not self.data_manager:
+            print("⚠️ No data_manager provided. Cannot use JSON integration.")
+            return {"error": "No data_manager configured"}
+        
+        print("📚 Creating schedule from JSON data...")
+        
+        # Load current student data
+        student_data = self.data_manager.load_student_data()
+        
+        # Build syllabus from study_plan
+        syllabus = {}
+        for item in student_data.get("study_plan", []):
+            subject = item.get("subject")
+            topic = item.get("topic")
+            
+            if subject not in syllabus:
+                syllabus[subject] = []
+            if topic not in syllabus[subject]:
+                syllabus[subject].append(topic)
+        
+        if not syllabus:
+            print("⚠️ No topics found in study plan")
+            return {"error": "No topics in study plan"}
+        
+        # Generate schedule using existing method
+        schedule = self.create_schedule(syllabus, exam_date, available_hours)
+        
+        # Save schedule back to JSON
+        student_data["generated_schedule"] = schedule
+        student_data["exam_date"] = exam_date
+        student_data["available_hours_per_day"] = available_hours
+        self.data_manager.save_student_data(student_data)
+        
+        print("✅ Schedule created and saved to JSON")
+        return schedule
+    
+    def adjust_schedule_from_json(self):
+        """
+        Adjust schedule based on pending topics in JSON.
+        Automatically detects missed tasks and rebalances.
+        
+        Returns:
+            Adjusted schedule dict
+        """
+        if not self.data_manager:
+            print("⚠️ No data_manager provided. Cannot use JSON integration.")
+            return {"error": "No data_manager configured"}
+        
+        print("🔄 Adjusting schedule based on current progress...")
+        
+        # Load current data
+        student_data = self.data_manager.load_student_data()
+        
+        # Get pending topics (not completed)
+        pending_topics = self.data_manager.get_pending_topics()
+        
+        if not pending_topics:
+            print("🎉 All topics completed! No adjustment needed.")
+            return {"message": "All topics completed"}
+        
+        # Get current schedule
+        current_schedule = student_data.get("generated_schedule", {})
+        
+        # Available hours
+        available_hours = student_data.get("available_hours_per_day", 3)
+        
+        # Adjust schedule
+        adjusted = self.adjust_schedule(current_schedule, pending_topics, available_hours)
+        
+        # Save adjusted schedule
+        student_data["generated_schedule"] = adjusted
+        self.data_manager.save_student_data(student_data)
+        
+        print(f"✅ Schedule adjusted for {len(pending_topics)} pending topics")
+        return adjusted
