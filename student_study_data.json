@@ -1,26 +1,16 @@
 {
-    "student_id": 234,
-    "student_name": "asd",
-    "study_plan": [
-        {
-            "date": "2025-11-08",
-            "subject": "math",
-            "topic": "sci",
-            "hours": 3,
-            "completed": false,
-            "completed_at": null
-        }
-    ],
+    "student_id": 1,
+    "student_name": "Student",
+    "study_plan": [],
     "progress_summary": {
-        "total_topics": 1,
+        "total_topics": 0,
         "completed_topics_count": 0,
         "readiness_percentage": 0.0
     },
-    "exam_date": "2025-11-14",
     "current_streak": 0,
     "meta": {
         "version": 1,
-        "created_at": "2025-11-08T17:16:48.597668",
-        "updated_at": "2025-11-08T11:46:48.598288+00:00"
+        "created_at": "2025-11-08T18:40:42.831858+00:00",
+        "updated_at": "2025-11-08T18:40:42.831903+00:00"
     }
 }

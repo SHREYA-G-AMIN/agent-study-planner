@@ -1,15 +1,27 @@
 import firebase_admin
 from firebase_admin import credentials, db
+import os
 
-# Path to your service account key file
-cred = credentials.Certificate("firebase_key.json")
-
-# Your Firebase Realtime Database URL
-firebase_url = "https://adaptive-study-default-rtdb.firebaseio.com/"
-
-# Initialize the app
-firebase_admin.initialize_app(cred, {
-    'databaseURL': firebase_url
-})
-
-print("✅ Firebase connected successfully!")
+def initialize_firebase():
+    """Initialize Firebase app - call this once at startup"""
+    try:
+        # Check if already initialized
+        firebase_admin.get_app()
+        print("✅ Firebase already initialized")
+        return True
+    except ValueError:
+        pass  # Not initialized yet
+    
+    # FIX: Remove trailing space in URL!
+    firebase_url = "https://adaptive-study-default-rtdb.firebaseio.com/"
+    
+    try:
+        cred = credentials.Certificate("firebase_key.json")
+        firebase_admin.initialize_app(cred, {
+            'databaseURL': firebase_url
+        })
+        print("✅ Firebase connected successfully!")
+        return True
+    except Exception as e:
+        print(f"❌ Firebase init failed: {e}")
+        return False
