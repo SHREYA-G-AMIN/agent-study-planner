@@ -1,15 +1,10 @@
-# Add these 3 lines after your existing imports
-from firebase_config import initialize_firebase
-from firebase_upload import upload_to_firebase, download_from_firebase
-import time
-
 import json
 import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import shutil
 
-# ✅ Firebase integration imports
+# Firebase integration imports
 from firebase_config import initialize_firebase
 from firebase_upload import upload_to_firebase, download_from_firebase
 import time
@@ -168,7 +163,7 @@ class StudentDataManager:
             # Atomic replace
             os.replace(temp_path, self.json_path)
             
-            # ✅ FIREBASE SYNC: Only runs if local save succeeded
+            # Firebase sync (only runs if local save succeeded)
             if self.firebase_ok:
                 data['meta']['last_synced'] = time.time()
                 upload_to_firebase(self.student_id, data)
@@ -181,14 +176,19 @@ class StudentDataManager:
                 os.remove(temp_path)
             raise
     
-    def update_progress(self) -> Dict:
+    def update_progress(self, data: Optional[Dict] = None) -> Dict:
         """
         Recalculate progress metrics based on current study_plan.
         
+        Args:
+            data: Optional data dict to use instead of loading from disk
+            
         Returns:
             Updated data dictionary
         """
-        data = self.load_student_data()
+        # Use provided data or load fresh
+        if data is None:
+            data = self.load_student_data()
         
         study_plan = data.get("study_plan", [])
         total_topics = len(study_plan)
@@ -239,7 +239,7 @@ class StudentDataManager:
             return data
         
         # Update progress and save
-        return self.update_progress()
+        return self.update_progress(data)
     
     def mark_topic_incomplete(self, topic_name: str) -> Dict:
         """
@@ -268,7 +268,7 @@ class StudentDataManager:
             return data
         
         # Update progress and save
-        return self.update_progress()
+        return self.update_progress(data)
     
     def get_pending_topics(self) -> List[Dict]:
         """
@@ -326,7 +326,7 @@ class StudentDataManager:
         print(f"➕ Added topic: {topic} ({subject}) on {date}")
         
         # Update progress and save
-        return self.update_progress()
+        return self.update_progress(data)
     
     def get_summary(self) -> Dict:
         """
@@ -362,6 +362,41 @@ class StudentDataManager:
         self.save_student_data(data)
         print(f"🔥 Streak updated: {new_streak} days")
         return data
+    
+    def auto_update_streak(self) -> Dict:
+        """
+        Auto-increment streak if studying today, reset if missed days.
+        Call this when user marks any topic complete.
+        """
+        data = self.load_student_data()
+        last_study = data["meta"].get("last_study_date")
+        today = datetime.now(timezone.utc).date().isoformat()
+        
+        if last_study == today:
+            print("ℹ️  Already studied today")
+            return data
+        
+        if last_study:
+            # Check if consecutive day
+            last_date = datetime.fromisoformat(last_study).date()
+            days_diff = (datetime.now(timezone.utc).date() - last_date).days
+            
+            if days_diff == 1:
+                # Consecutive day - increment
+                data["current_streak"] += 1
+                print(f"🔥 Streak +1! Now {data['current_streak']} days")
+            elif days_diff > 1:
+                # Missed days - reset
+                data["current_streak"] = 1
+                print(f"⚠️  Streak reset. Started new streak: 1 day")
+        else:
+            # First time studying
+            data["current_streak"] = 1
+            print("🔥 First study session! Streak: 1 day")
+        
+        data["meta"]["last_study_date"] = today
+        self.save_student_data(data)
+        return data
 
 
 # Example usage and testing
@@ -375,6 +410,10 @@ if __name__ == "__main__":
     data = manager_local.load_student_data()
     print(f"   Student: {data.get('student_name')}")
     print(f"   Topics in plan: {len(data.get('study_plan', []))}")
+    
+    # Test auto_update_streak
+    print("\n🔥 Testing auto_update_streak:")
+    manager_local.auto_update_streak()
     
     # Test WITH Firebase
     print("\n☁️  Testing FIREBASE mode:")
