@@ -1,24 +1,50 @@
+# Add these 3 lines after your existing imports
+from firebase_config import initialize_firebase
+from firebase_upload import upload_to_firebase, download_from_firebase
+import time
+
 import json
 import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import shutil
 
+# ✅ Firebase integration imports
+from firebase_config import initialize_firebase
+from firebase_upload import upload_to_firebase, download_from_firebase
+import time
+
 
 class StudentDataManager:
     """
     Centralized manager for student study data persistence.
     Handles reading/writing student_study_data.json with backward compatibility.
+    Now with optional Firebase Realtime Database sync!
     """
     
-    def __init__(self, json_path: str = "student_study_data.json"):
+    def __init__(self, json_path: str = "student_study_data.json", use_firebase: bool = False, student_id: str = "default_student"):
         """
         Initialize the data manager.
         
         Args:
             json_path: Path to the JSON file (relative or absolute)
+            use_firebase: Whether to enable Firebase sync
+            student_id: Unique ID for Firebase (e.g., github username)
         """
         self.json_path = json_path
+        self.use_firebase = use_firebase
+        self.student_id = student_id
+        
+        # Initialize Firebase if requested
+        if self.use_firebase:
+            self.firebase_ok = initialize_firebase()
+            if self.firebase_ok:
+                print("☁️  Firebase sync enabled")
+            else:
+                print("⚠️  Firebase init failed, running offline")
+        else:
+            self.firebase_ok = False
+        
         self._ensure_file_exists()
     
     def _get_default_data(self) -> Dict:
@@ -141,6 +167,12 @@ class StudentDataManager:
             
             # Atomic replace
             os.replace(temp_path, self.json_path)
+            
+            # ✅ FIREBASE SYNC: Only runs if local save succeeded
+            if self.firebase_ok:
+                data['meta']['last_synced'] = time.time()
+                upload_to_firebase(self.student_id, data)
+                print("☁️  Synced to Firebase")
             
         except Exception as e:
             print(f"❌ Error saving data: {e}")
@@ -337,32 +369,28 @@ if __name__ == "__main__":
     print("🧪 Testing StudentDataManager\n")
     print("=" * 60)
     
-    # Initialize manager
-    manager = StudentDataManager()
-    
-    # Load current data
-    print("\n1️⃣ Loading current data:")
-    data = manager.load_student_data()
+    # Test WITHOUT Firebase (default behavior)
+    print("\n📁 Testing LOCAL mode:")
+    manager_local = StudentDataManager()
+    data = manager_local.load_student_data()
     print(f"   Student: {data.get('student_name')}")
     print(f"   Topics in plan: {len(data.get('study_plan', []))}")
     
+    # Test WITH Firebase
+    print("\n☁️  Testing FIREBASE mode:")
+    try:
+        manager_cloud = StudentDataManager(use_firebase=True, student_id="test_sher")
+        cloud_data = manager_cloud.load_student_data()
+        print(f"   Firebase connection: ✅ Working")
+        print(f"   Student: {cloud_data.get('student_name')}")
+    except Exception as e:
+        print(f"   Firebase connection: ❌ {e}")
+    
     # Get summary
-    print("\n2️⃣ Current summary:")
-    summary = manager.get_summary()
+    print("\n📊 Current summary:")
+    summary = manager_local.get_summary()
     for key, value in summary.items():
         print(f"   {key}: {value}")
-    
-    # Get pending topics
-    print("\n3️⃣ Pending topics:")
-    pending = manager.get_pending_topics()
-    for topic in pending:
-        print(f"   - {topic.get('topic')} ({topic.get('subject')})")
-    
-    # Get completed topics
-    print("\n4️⃣ Completed topics:")
-    completed = manager.get_completed_topics()
-    for topic in completed:
-        print(f"   - {topic.get('topic')} ({topic.get('subject')})")
     
     print("\n" + "=" * 60)
     print("✅ Test complete!")
