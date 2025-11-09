@@ -7,7 +7,7 @@ try:
     # Initialize
     cred = credentials.Certificate("firebase_key.json")
     firebase_admin.initialize_app(cred, {
-        'databaseURL': "https://adaptive-study-default-rtdb.firebaseio.com/"
+        'databaseURL': "https://adaptivestudyplanner-default-rtdb.asia-southeast1.firebasedatabase.app"
     })
     print("✅ Firebase initialized")
     

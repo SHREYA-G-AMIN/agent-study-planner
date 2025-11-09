@@ -13,7 +13,7 @@ def initialize_firebase():
         pass  # Not initialized yet
     
     # FIX: Remove trailing space in URL!
-    firebase_url = "https://adaptive-study-default-rtdb.firebaseio.com/"
+    firebase_url = "https://adaptivestudyplanner-default-rtdb.asia-southeast1.firebasedatabase.app"
     
     try:
         cred = credentials.Certificate("firebase_key.json")

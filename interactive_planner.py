@@ -1,11 +1,16 @@
 #!/usr/bin/env python
 """
 Interactive Study Planner - Takes user input and creates personalized plans
+With Firebase sync and auto streak tracking
 """
 
 from json_manager import StudentDataManager
 from datetime import datetime, timedelta
 import json
+
+# Firebase configuration
+STUDENT_ID = "sher_amin"  # Change to your GitHub username or consistent ID
+USE_FIREBASE = True  # Set to False to test offline
 
 def welcome():
     """Display welcome message"""
@@ -119,33 +124,14 @@ def create_new_student_plan():
         }
     }
     
-    # Save to JSON
+    # Save to JSON with Firebase sync
     print("\n💾 Saving your study plan...")
-    manager = StudentDataManager()
+    manager = StudentDataManager(use_firebase=USE_FIREBASE, student_id=STUDENT_ID)
     
-    # First, backup the old file if you want
-    import os
-    if os.path.exists("student_study_data.json"):
-        import shutil
-        shutil.copy("student_study_data.json", "student_study_data_backup.json")
-        print("📦 Backed up old data to: student_study_data_backup.json")
-    
-    # Save the complete structure
-    with open("student_study_data.json", 'w', encoding='utf-8') as f:
-        import json
-        json.dump(student_data, f, indent=4)
+    # Use manager to save (handles Firebase sync)
+    manager.save_student_data(student_data)
     
     print("✅ Data saved successfully!")
-    
-    # Verify the save by reloading
-    with open("student_study_data.json", 'r', encoding='utf-8') as f:
-        import json
-        verified_data = json.load(f)
-    
-    if verified_data["student_name"] == student_info["student_name"]:
-        print("✅ Verification passed: Data correctly saved!")
-    else:
-        print("⚠️ Warning: Verification failed")
     
     # Display summary
     print("\n" + "="*60)
@@ -159,6 +145,7 @@ def create_new_student_plan():
         print(f"   {i}. {topic['topic']} ({topic['subject']}) - {topic['hours']}h")
     
     print(f"\n💾 Saved to: student_study_data.json")
+    print(f"☁️  Synced to Firebase for student: {STUDENT_ID}")
     print("\n✅ You can now track your progress!")
     
     return student_data
@@ -169,7 +156,7 @@ def update_progress():
     print("📊 UPDATE PROGRESS")
     print("="*60)
     
-    manager = StudentDataManager()
+    manager = StudentDataManager(use_firebase=USE_FIREBASE, student_id=STUDENT_ID)
     
     # Load current data
     data = manager.load_student_data()
@@ -204,6 +191,9 @@ def update_progress():
         except:
             print("⚠️ Invalid input")
     
+    # Auto-update streak when studying
+    manager.auto_update_streak()
+    
     # Show updated summary
     summary = manager.get_summary()
     print("\n" + "="*60)
@@ -219,7 +209,7 @@ def view_summary():
     print("📊 PROGRESS SUMMARY")
     print("="*60)
     
-    manager = StudentDataManager()
+    manager = StudentDataManager(use_firebase=USE_FIREBASE, student_id=STUDENT_ID)
     summary = manager.get_summary()
     
     print(f"\n👤 Student: {summary['student_name']}")
