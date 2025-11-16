@@ -1,8 +1,7 @@
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from config.settings import OPENAI_API_KEY, MODEL_NAME, TEMPERATURE_TRACKING
-from json_manager import StudentDataManager
 import json
+import requests
+from config.settings import POLLINATIONS_API_KEY, MODEL_NAME, TEMPERATURE_TRACKING
+from json_manager import StudentDataManager
 
 
 class TrackerAgent:
@@ -13,12 +12,10 @@ class TrackerAgent:
         Args:
             data_manager: Optional StudentDataManager instance for JSON integration
         """
-        self.llm = ChatOpenAI(
-            api_key=OPENAI_API_KEY,
-            model=MODEL_NAME,
-            temperature=TEMPERATURE_TRACKING
-        )
-        
+        # Use direct Pollinations.ai HTTP calls
+        self.api_key = POLLINATIONS_API_KEY
+        self.model = MODEL_NAME
+        self.default_temperature = TEMPERATURE_TRACKING
         self.system_prompt = """You are a study progress tracking AI assistant. Your responsibilities:
 
 1. Monitor daily task completion accurately
@@ -39,32 +36,22 @@ Guidelines:
     
     def track_progress(self, schedule: dict, completed_topics: list):
         """Tracks completion status"""
-        
         completed_str = ", ".join(completed_topics) if completed_topics else "None yet"
-        
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", self.system_prompt),
-            ("human", """Analyze the student's progress:
-
-Schedule: {schedule}
-Completed Topics: {completed}
-
-Provide:
-1. What's been completed
-2. What's been missed
-3. Current readiness assessment
-4. Specific recommendations
-
-Be encouraging but honest.""")
-        ])
+        human = (
+            "Analyze the student's progress:\n\n"
+            f"Schedule: {json.dumps(schedule, indent=2)}\n"
+            f"Completed Topics: {completed_str}\n\n"
+            "Provide:\n"
+            "1. What's been completed\n"
+            "2. What's been missed\n"
+            "3. Current readiness assessment\n"
+            "4. Specific recommendations\n\n"
+            "Be encouraging but honest."
+        )
 
         try:
-            chain = prompt | self.llm
-            result = chain.invoke({
-                "schedule": json.dumps(schedule, indent=2),
-                "completed": completed_str
-            })
-            return {"output": result.content, "analysis": result.content}
+            resp = self._call_openai(self.system_prompt, human, self.default_temperature)
+            return {"output": resp, "analysis": resp}
         except Exception as e:
             return {"error": str(e)}
     
@@ -74,33 +61,23 @@ Be encouraging but honest.""")
         total = completed_count + missed_count
         completion_rate = (completed_count / total * 100) if total > 0 else 0
         
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", self.system_prompt),
-            ("human", """Generate performance analytics:
-
-Completed Tasks: {completed}
-Missed Tasks: {missed}
-Current Streak: {streak} days
-Completion Rate: {rate}%
-
-Provide:
-1. Performance assessment
-2. Strengths and weaknesses
-3. Actionable recommendations
-4. Motivational insights
-
-Be specific and helpful.""")
-        ])
+        human = (
+            "Generate performance analytics:\n\n"
+            f"Completed Tasks: {completed_count}\n"
+            f"Missed Tasks: {missed_count}\n"
+            f"Current Streak: {streak} days\n"
+            f"Completion Rate: {round(completion_rate,1)}%\n\n"
+            "Provide:\n"
+            "1. Performance assessment\n"
+            "2. Strengths and weaknesses\n"
+            "3. Actionable recommendations\n"
+            "4. Motivational insights\n\n"
+            "Be specific and helpful."
+        )
 
         try:
-            chain = prompt | self.llm
-            result = chain.invoke({
-                "completed": completed_count,
-                "missed": missed_count,
-                "streak": streak,
-                "rate": round(completion_rate, 1)
-            })
-            return {"output": result.content, "analytics": result.content}
+            resp = self._call_openai(self.system_prompt, human, self.default_temperature)
+            return {"output": resp, "analytics": resp}
         except Exception as e:
             return {"error": str(e)}
     
@@ -183,3 +160,39 @@ Be specific and helpful.""")
         
         # Return updated progress
         return self.track_from_json()
+
+    def _call_openai(self, system_prompt: str, human_prompt: str, temperature: float = 0.2) -> str:
+        """Simple Pollinations.ai ChatCompletions call returning the assistant text."""
+        if not self.api_key:
+            raise RuntimeError("POLLINATIONS_API_KEY not configured in config.settings")
+
+        url = "https://enter.pollinations.ai/api/generate/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": human_prompt}
+            ],
+            "temperature": temperature
+        }
+
+        try:
+            r = requests.post(url, headers=headers, json=payload, timeout=30)
+            r.raise_for_status()
+            j = r.json()
+            return j["choices"][0]["message"]["content"].strip()
+        except requests.exceptions.HTTPError as e:
+            # Try to get error details from response
+            error_msg = str(e)
+            try:
+                error_details = r.json() if hasattr(r, 'json') else {}
+                error_msg = f"{error_msg}. Response: {error_details}"
+            except:
+                error_msg = f"{error_msg}. Response text: {r.text[:200] if hasattr(r, 'text') else 'N/A'}"
+            raise RuntimeError(f"Pollinations.ai API error: {error_msg}")
+        except Exception as e:
+            raise RuntimeError(f"Pollinations.ai API request failed: {str(e)}")

@@ -8,12 +8,12 @@ print("🧪 Testing Agent Initialization...\n")
 # Test 1: Check if config loads
 print("1️⃣ Testing config/settings...")
 try:
-    from config.settings import OPENAI_API_KEY, MODEL_NAME
-    if OPENAI_API_KEY:
-        print(f"✅ OpenAI API Key loaded: {OPENAI_API_KEY[:10]}...")
+    from config.settings import POLLINATIONS_API_KEY, MODEL_NAME
+    if POLLINATIONS_API_KEY:
+        print(f"✅ Pollinations API Key loaded: {POLLINATIONS_API_KEY[:10]}...")
         print(f"✅ Model: {MODEL_NAME}")
     else:
-        print("❌ OpenAI API Key is None!")
+        print("❌ Pollinations API Key is None!")
 except Exception as e:
     print(f"❌ Error loading config: {e}")
 
@@ -35,10 +35,10 @@ except Exception as e:
 print("\n3️⃣ Testing ChatOpenAI initialization...")
 try:
     from langchain_openai import ChatOpenAI
-    from config.settings import OPENAI_API_KEY, MODEL_NAME
+    from config.settings import POLLINATIONS_API_KEY, MODEL_NAME
     
     llm = ChatOpenAI(
-        api_key=OPENAI_API_KEY,
+        api_key=POLLINATIONS_API_KEY,
         model=MODEL_NAME,
         temperature=0.7
     )

@@ -1,8 +1,7 @@
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from config.settings import OPENAI_API_KEY, MODEL_NAME, TEMPERATURE_MOTIVATION
-from json_manager import StudentDataManager
 import json
+import requests
+from config.settings import POLLINATIONS_API_KEY, MODEL_NAME, TEMPERATURE_MOTIVATION
+from json_manager import StudentDataManager
 
 
 class MotivatorAgent:
@@ -13,12 +12,10 @@ class MotivatorAgent:
         Args:
             data_manager: Optional StudentDataManager instance for JSON integration
         """
-        self.llm = ChatOpenAI(
-            api_key=OPENAI_API_KEY,
-            model=MODEL_NAME,
-            temperature=TEMPERATURE_MOTIVATION
-        )
-        
+        # Use direct Pollinations.ai HTTP calls
+        self.api_key = POLLINATIONS_API_KEY
+        self.model = MODEL_NAME
+        self.default_temperature = TEMPERATURE_MOTIVATION
         self.system_prompt = """You are a supportive and encouraging study motivation coach. Your responsibilities:
 
 1. Generate personalized motivational messages
@@ -41,63 +38,40 @@ You help students stay motivated and consistent in their study journey."""
     
     def daily_motivation(self, completed_count: int, missed_count: int, streak: int):
         """Generates daily motivational message"""
-        
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", self.system_prompt),
-            ("human", """Create a motivational message for a student:
-
-Completed Tasks: {completed}
-Missed Tasks: {missed}
-Current Streak: {streak} days
-
-Craft a personalized, encouraging message (2-3 sentences) that:
-- Acknowledges their current progress
-- Provides genuine encouragement
-- Inspires them to keep going
-
-Be warm, supportive, and specific.""")
-        ])
+        human = (
+            "Create a motivational message for a student:\n\n"
+            f"Completed Tasks: {completed_count}\n"
+            f"Missed Tasks: {missed_count}\n"
+            f"Current Streak: {streak} days\n\n"
+            "Craft a personalized, encouraging message (2-3 sentences) that:\n"
+            "- Acknowledges their current progress\n"
+            "- Provides genuine encouragement\n"
+            "- Inspires them to keep going\n\n"
+            "Be warm, supportive, and specific."
+        )
 
         try:
-            chain = prompt | self.llm
-            result = chain.invoke({
-                "completed": completed_count,
-                "missed": missed_count,
-                "streak": streak
-            })
-            return {"output": result.content, "message": result.content}
+            resp = self._call_openai(self.system_prompt, human, self.default_temperature)
+            return {"output": resp, "message": resp}
         except Exception as e:
             return {"error": str(e)}
     
     def weekly_summary(self, completed_count: int, missed_count: int, streak: int):
         """Creates weekly progress summary"""
-        
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", self.system_prompt),
-            ("human", """Create a comprehensive weekly summary for a student:
-
-This Week's Stats:
-- Completed Tasks: {completed}
-- Missed Tasks: {missed}
-- Study Streak: {streak} days
-
-Create an engaging weekly report that includes:
-1. Key achievements this week
-2. Areas for improvement
-3. Encouraging next steps
-4. Overall performance assessment
-
-Make it motivating, actionable, and celebrate progress!""")
-        ])
+        human = (
+            "Create a comprehensive weekly summary for a student:\n\n"
+            f"This Week's Stats:\n- Completed Tasks: {completed_count}\n- Missed Tasks: {missed_count}\n- Study Streak: {streak} days\n\n"
+            "Create an engaging weekly report that includes:\n"
+            "1. Key achievements this week\n"
+            "2. Areas for improvement\n"
+            "3. Encouraging next steps\n"
+            "4. Overall performance assessment\n\n"
+            "Make it motivating, actionable, and celebrate progress!"
+        )
 
         try:
-            chain = prompt | self.llm
-            result = chain.invoke({
-                "completed": completed_count,
-                "missed": missed_count,
-                "streak": streak
-            })
-            return {"output": result.content, "summary": result.content}
+            resp = self._call_openai(self.system_prompt, human, self.default_temperature)
+            return {"output": resp, "summary": resp}
         except Exception as e:
             return {"error": str(e)}
     
@@ -176,3 +150,39 @@ Make it motivating, actionable, and celebrate progress!""")
         print("✅ Weekly summary generated!")
         
         return summary
+
+    def _call_openai(self, system_prompt: str, human_prompt: str, temperature: float = 0.7) -> str:
+        """Simple Pollinations.ai ChatCompletions call returning the assistant text."""
+        if not self.api_key:
+            raise RuntimeError("POLLINATIONS_API_KEY not configured in config.settings")
+
+        url = "https://enter.pollinations.ai/api/generate/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": human_prompt}
+            ],
+            "temperature": temperature
+        }
+
+        try:
+            r = requests.post(url, headers=headers, json=payload, timeout=30)
+            r.raise_for_status()
+            j = r.json()
+            return j["choices"][0]["message"]["content"].strip()
+        except requests.exceptions.HTTPError as e:
+            # Try to get error details from response
+            error_msg = str(e)
+            try:
+                error_details = r.json() if hasattr(r, 'json') else {}
+                error_msg = f"{error_msg}. Response: {error_details}"
+            except:
+                error_msg = f"{error_msg}. Response text: {r.text[:200] if hasattr(r, 'text') else 'N/A'}"
+            raise RuntimeError(f"Pollinations.ai API error: {error_msg}")
+        except Exception as e:
+            raise RuntimeError(f"Pollinations.ai API request failed: {str(e)}")

@@ -1,8 +1,7 @@
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from config.settings import OPENAI_API_KEY, MODEL_NAME, TEMPERATURE_PLANNING
-from json_manager import StudentDataManager
 import json
+import requests
+from config.settings import POLLINATIONS_API_KEY, MODEL_NAME, TEMPERATURE_PLANNING
+from json_manager import StudentDataManager
 
 
 class PlannerAgent:
@@ -13,12 +12,10 @@ class PlannerAgent:
         Args:
             data_manager: Optional StudentDataManager instance for JSON integration
         """
-        self.llm = ChatOpenAI(
-            api_key=OPENAI_API_KEY,
-            model=MODEL_NAME,
-            temperature=TEMPERATURE_PLANNING
-        )
-        
+        # Use direct Pollinations.ai HTTP calls
+        self.api_key = POLLINATIONS_API_KEY
+        self.model = MODEL_NAME
+        self.default_temperature = TEMPERATURE_PLANNING
         self.system_prompt = """You are an intelligent study planner AI assistant. Your responsibilities:
 
 1. Create realistic, balanced study schedules
@@ -39,63 +36,43 @@ Guidelines:
     
     def create_schedule(self, syllabus: dict, exam_date: str, available_hours: int):
         """Creates a new study schedule"""
-        
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", self.system_prompt),
-            ("human", """Create a comprehensive study schedule with these details:
+        human = (
+            "Create a comprehensive study schedule with these details:\n\n"
+            f"Syllabus: {json.dumps(syllabus, indent=2)}\n"
+            f"Exam Date: {exam_date}\n"
+            f"Available Hours Per Day: {available_hours}\n\n"
+            "Provide a day-by-day study plan with:\n"
+            "- Date and topics to cover each day\n"
+            "- Estimated hours needed\n"
+            "- Include 2 revision days before exam\n"
+            "- Ensure workload is balanced\n\n"
+            "Respond with actionable recommendations."
+        )
 
-Syllabus: {syllabus}
-Exam Date: {exam_date}
-Available Hours Per Day: {available_hours}
-
-Provide a day-by-day study plan with:
-- Date and topics to cover each day
-- Estimated hours needed
-- Include 2 revision days before exam
-- Ensure workload is balanced
-
-Respond with actionable recommendations.""")
-        ])
-        
         try:
-            chain = prompt | self.llm
-            result = chain.invoke({
-                "syllabus": json.dumps(syllabus, indent=2),
-                "exam_date": exam_date,
-                "available_hours": available_hours
-            })
-            return {"output": result.content, "schedule": result.content}
+            resp = self._call_openai(self.system_prompt, human, self.default_temperature)
+            return {"output": resp, "schedule": resp}
         except Exception as e:
             return {"error": str(e)}
     
     def adjust_schedule(self, current_schedule: dict, missed_tasks: list, available_hours: int):
         """Adjusts schedule for missed tasks"""
-        
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", self.system_prompt),
-            ("human", """A student has fallen behind schedule. Please rebalance their study plan:
-
-Current Schedule: {current_schedule}
-Missed/Pending Tasks: {missed_tasks}
-Available Hours Per Day: {available_hours}
-
-Create an adjusted schedule that:
-1. Prioritizes missed tasks
-2. Doesn't overload any single day  
-3. Maintains realistic goals
-4. Provides encouragement
-
-Give practical recommendations.""")
-        ])
+        human = (
+            "A student has fallen behind schedule. Please rebalance their study plan:\n\n"
+            f"Current Schedule: {json.dumps(current_schedule, indent=2)}\n"
+            f"Missed/Pending Tasks: {json.dumps(missed_tasks, indent=2)}\n"
+            f"Available Hours Per Day: {available_hours}\n\n"
+            "Create an adjusted schedule that:\n"
+            "1. Prioritizes missed tasks\n"
+            "2. Doesn't overload any single day\n"
+            "3. Maintains realistic goals\n"
+            "4. Provides encouragement\n\n"
+            "Give practical recommendations."
+        )
 
         try:
-            chain = prompt | self.llm
-            result = chain.invoke({
-                "current_schedule": json.dumps(current_schedule, indent=2),
-                "missed_tasks": json.dumps(missed_tasks, indent=2),
-                "available_hours": available_hours
-            })
-            return {"output": result.content, "adjusted_schedule": result.content}
+            resp = self._call_openai(self.system_prompt, human, self.default_temperature)
+            return {"output": resp, "adjusted_schedule": resp}
         except Exception as e:
             return {"error": str(e)}
     
@@ -187,3 +164,40 @@ Give practical recommendations.""")
         
         print(f"✅ Schedule adjusted for {len(pending_topics)} pending topics")
         return adjusted
+
+    def _call_openai(self, system_prompt: str, human_prompt: str, temperature: float = 0.3) -> str:
+        """Simple Pollinations.ai ChatCompletions call returning the assistant text."""
+        if not self.api_key:
+            raise RuntimeError("POLLINATIONS_API_KEY not configured in config.settings")
+
+        url = "https://enter.pollinations.ai/api/generate/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": human_prompt}
+            ],
+            "temperature": temperature
+        }
+
+        try:
+            r = requests.post(url, headers=headers, json=payload, timeout=30)
+            r.raise_for_status()
+            j = r.json()
+            # Extract assistant reply
+            return j["choices"][0]["message"]["content"].strip()
+        except requests.exceptions.HTTPError as e:
+            # Try to get error details from response
+            error_msg = str(e)
+            try:
+                error_details = r.json() if hasattr(r, 'json') else {}
+                error_msg = f"{error_msg}. Response: {error_details}"
+            except:
+                error_msg = f"{error_msg}. Response text: {r.text[:200] if hasattr(r, 'text') else 'N/A'}"
+            raise RuntimeError(f"Pollinations.ai API error: {error_msg}")
+        except Exception as e:
+            raise RuntimeError(f"Pollinations.ai API request failed: {str(e)}")
